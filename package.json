@@ -2,39 +2,28 @@
   "name": "cabo-game",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@headlessui/react": "^2.2.10",
     "@heroicons/react": "^2.2.0",
     "framer-motion": "^12.40.0",
-    "pdfkit": "^0.18.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-scripts": "5.0.1",
     "tailwindcss": "^3.4.1",
     "typescript": "^4.9.5",
     "zustand": "^5.0.13"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "dev": "vite",
+    "start": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+  "devDependencies": {
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.5.0",
+    "vite": "^8.0.14"
   }
 }

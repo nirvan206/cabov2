@@ -72,7 +72,16 @@ interface MPStore {
 
 const invoke = async (fn: string, body: object) => {
   const { data, error } = await supabase.functions.invoke(fn, { body });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Extract the real error message from the function response body
+    try {
+      const errBody = await (error as any).context?.json?.();
+      if (errBody?.error) throw new Error(errBody.error);
+    } catch (inner: any) {
+      if (inner?.message && inner.message !== error.message) throw inner;
+    }
+    throw new Error(error.message);
+  }
   return data;
 };
 
@@ -95,7 +104,7 @@ export const useMPStore = create<MPStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const data = await invoke('create-game', { max_players: maxPlayers, num_decks: numDecks });
-      set({ loading: false });
+      set({ loading: false, mySeat: data.seat_index ?? 0 });
       return data.game_id as string;
     } catch (e: any) {
       set({ loading: false, error: e.message });
@@ -263,6 +272,8 @@ export const useMPStore = create<MPStore>((set, get) => ({
         players: data.players,
         cards: data.cards,
         actionLog: data.action_log?.map((l: any) => l.message) ?? [],
+        // Sync seat if returned and not already set
+        ...(data.my_seat >= 0 && { mySeat: data.my_seat }),
       });
     } catch (e: any) {
       set({ error: e.message });

@@ -1,4 +1,4 @@
-import { getUser, getServiceClient, corsHeaders, ok, err } from '../_shared/utils.ts';
+import { getUser, getServiceClient, upsertProfile, corsHeaders, ok, err } from '../_shared/utils.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -6,6 +6,17 @@ Deno.serve(async (req) => {
     const user = await getUser(req);
     const { max_players = 4, num_decks = 2 } = await req.json();
     const supabase = getServiceClient();
+
+    // Auto-clean waiting rooms older than 5 minutes
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: stale } = await supabase
+      .from('games').select('id').eq('status', 'waiting').lt('created_at', cutoff);
+    if (stale?.length) {
+      await supabase.from('games').delete().in('id', stale.map((g: any) => g.id));
+    }
+
+    // Ensure profile exists with unique username
+    await upsertProfile(supabase, user);
 
     // Create game
     const { data: game, error: gameErr } = await supabase

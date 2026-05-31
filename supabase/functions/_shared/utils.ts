@@ -18,6 +18,37 @@ export const getUser = async (req: Request) => {
   return user;
 };
 
+// Always produces a globally-unique username by appending 6 chars of UUID
+export const upsertProfile = async (supabase: any, user: any) => {
+  const raw = (
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    user.email?.split('@')[0] ||
+    'player'
+  ).replace(/[^a-zA-Z0-9]/g, '_').toLowerCase().slice(0, 14);
+
+  const username = `${raw}_${user.id.slice(0, 6)}`;
+
+  const { error } = await supabase.from('profiles').upsert(
+    { id: user.id, username, avatar_url: user.user_metadata?.avatar_url ?? null },
+    { onConflict: 'id' }
+  );
+  if (error) throw new Error(`Profile sync failed: ${error.message}`);
+  return username;
+};
+
+// Returns seat_index or -1 if not in game (never throws)
+export const findPlayerSeat = async (supabase: any, gameId: string, playerId: string): Promise<number> => {
+  const { data } = await supabase
+    .from('game_players')
+    .select('seat_index')
+    .eq('game_id', gameId)
+    .eq('player_id', playerId)
+    .single();
+  return data?.seat_index ?? -1;
+};
+
+// Throws if player is not in game
 export const getPlayerSeat = async (supabase: any, gameId: string, playerId: string) => {
   const { data, error } = await supabase
     .from('game_players')
@@ -36,14 +67,13 @@ export const logAction = async (supabase: any, gameId: string, seatIndex: number
 export const advanceTurn = async (supabase: any, gameId: string) => {
   const { data: game } = await supabase.from('games').select('*').eq('id', gameId).single();
   const { data: players } = await supabase.from('game_players').select('seat_index').eq('game_id', gameId).order('seat_index');
-  
+
   const seats: number[] = players.map((p: any) => p.seat_index);
   const currentSeat = game.current_turn_seat;
   const currentIdx = seats.indexOf(currentSeat);
   const nextIdx = (currentIdx + 1) % seats.length;
   const nextSeat = seats[nextIdx];
 
-  // If cabo was called and we've looped back to cabo caller → end round
   if (game.cabo_called && nextSeat === game.cabo_caller_seat) {
     await endRound(supabase, gameId);
     return;
@@ -57,10 +87,8 @@ export const endRound = async (supabase: any, gameId: string) => {
   const { data: players } = await supabase.from('game_players').select('*').eq('game_id', gameId);
   const { data: cards } = await supabase.from('cards').select('*').eq('game_id', gameId).eq('location', 'hand');
 
-  // Flip all cards face up
   await supabase.from('cards').update({ face_up: true }).eq('game_id', gameId).eq('location', 'hand');
 
-  // Calculate scores per player
   for (const player of players) {
     const playerCards = cards.filter((c: any) => c.owner_seat === player.seat_index);
     const roundScore = playerCards.reduce((sum: number, c: any) => sum + c.value, 0);

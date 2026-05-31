@@ -24,7 +24,12 @@ const ANIM_POS: Record<string, [number, number]> = {
   center:     [50, 50],  // deck / discard area
 };
 
-export const GameTable: React.FC = () => {
+interface GameTableProps {
+  gameId?: string;
+  onLeave?: () => void;
+}
+
+export const GameTable: React.FC<GameTableProps> = ({ gameId, onLeave }) => {
   const {
     players,
     deck,

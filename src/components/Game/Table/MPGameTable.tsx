@@ -1,85 +1,92 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useMPStore, MPCard, MPPlayer } from '../../../store/mpStore';
+import { useMPStore, MPCard } from '../../../store/mpStore';
 
-// ── Helpers ──────────────────────────────────────────────────────
+// ── Card value/suit helpers ──────────────────────────────────────
 const RANK: Record<number, string> = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
-const SUIT_SYM: Record<string, string> = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
-const RED = ['hearts', 'diamonds'];
-
-const rank = (v: number | null) => v === null ? '?' : (RANK[v] ?? String(v));
-const suit = (s: string | null) => s ? (SUIT_SYM[s] ?? s) : '';
-const isRed = (s: string | null) => s ? RED.includes(s) : false;
-
-const specialName = (v: number | null) => {
-  if (!v) return null;
-  if (v === 7 || v === 8) return 'Peek Own Card';
-  if (v === 9 || v === 10) return 'Spy Opponent';
-  if (v === 11) return 'Blind Swap';
-  if (v >= 12) return 'Seen Swap';
-  return null;
+const SUIT_SYM: Record<string, string> = {
+  hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠',
 };
+const RED_SUITS = new Set(['hearts', 'diamonds']);
 
-// ── Card components ───────────────────────────────────────────────
-interface CardProps {
+const rankStr = (v: number | null) => v == null ? '' : (RANK[v] ?? String(v));
+const suitStr = (s: string | null) => s ? (SUIT_SYM[s] ?? s) : '';
+const suitClass = (s: string | null) => s && RED_SUITS.has(s) ? 'suit-red' : 'suit-black';
+
+// ── Reusable MP card that matches the original design ─────────────
+interface MPCardViewProps {
   card?: MPCard;
+  size?: 'sm' | 'md';
   faceDown?: boolean;
-  small?: boolean;
-  highlighted?: boolean;
-  glowing?: boolean;
+  glow?: boolean;      // golden glow (selected / peek)
+  flash?: boolean;     // swap animation
   dimmed?: boolean;
-  peeked?: boolean;
-  swapped?: boolean;
+  clickable?: boolean;
   onClick?: () => void;
   label?: string;
 }
 
-const Card: React.FC<CardProps> = ({
-  card, faceDown, small, highlighted, glowing, dimmed, peeked, swapped, onClick, label
+const MPCardView: React.FC<MPCardViewProps> = ({
+  card, size = 'md', faceDown, glow, flash, dimmed, clickable, onClick, label,
 }) => {
-  const hidden = faceDown || !card || card.value === null;
+  const hidden = faceDown || !card || card.value == null;
   const cls = [
-    'mpc',
-    small ? 'mpc-sm' : 'mpc-lg',
-    hidden ? 'mpc-back' : (isRed(card?.suit ?? null) ? 'mpc-red' : 'mpc-black'),
-    highlighted ? 'mpc-highlighted' : '',
-    glowing ? 'mpc-glowing' : '',
-    dimmed ? 'mpc-dimmed' : '',
-    peeked ? 'mpc-peeked' : '',
-    swapped ? 'mpc-swapped' : '',
-    onClick ? 'mpc-clickable' : '',
+    'card-wrapper',
+    `card-${size}`,
+    clickable ? 'interactive' : '',
+    glow ? 'mp-card-glow' : '',
+    flash ? 'mp-card-flash' : '',
+    dimmed ? 'mp-card-dimmed' : '',
   ].filter(Boolean).join(' ');
 
   return (
-    <div className={cls} onClick={onClick}>
-      {label && <div className="mpc-label">{label}</div>}
+    <div className={cls} onClick={onClick} style={{ position: 'relative' }}>
+      {glow && <div className="card-selected-glow" />}
+      {label && (
+        <div className="mp-card-badge">{label}</div>
+      )}
       {hidden ? (
-        <div className="mpc-back-inner">🂠</div>
+        // Card back — same as original
+        <div className="card-back-inner" />
       ) : (
-        <>
-          <span className="mpc-tl">{rank(card!.value)}<br />{suit(card!.suit)}</span>
-          <span className="mpc-center">{suit(card!.suit)}</span>
-          <span className="mpc-br">{rank(card!.value)}<br />{suit(card!.suit)}</span>
-        </>
+        // Card face — same as original
+        <div className={`card-face-inner`}>
+          <div className="card-inner-frame" />
+          <div className={`card-corner card-corner-tl ${suitClass(card!.suit)}`}>
+            <span className="card-corner-value">{rankStr(card!.value)}</span>
+            <span className="card-corner-suit">{suitStr(card!.suit)}</span>
+          </div>
+          <div className="card-center-area">
+            <span style={{ fontSize: size === 'sm' ? 18 : 24 }} className={suitClass(card!.suit)}>
+              {suitStr(card!.suit)}
+            </span>
+          </div>
+          <div className={`card-corner card-corner-br ${suitClass(card!.suit)}`}>
+            <span className="card-corner-value">{rankStr(card!.value)}</span>
+            <span className="card-corner-suit">{suitStr(card!.suit)}</span>
+          </div>
+        </div>
       )}
     </div>
   );
 };
 
-// ── Main MPGameTable ──────────────────────────────────────────────
+// ── MPGameTable ──────────────────────────────────────────────────
 interface MPGameTableProps {
   gameId: string;
   onLeave: () => void;
 }
 
-type UIMode =
-  | 'idle'
-  | 'drawn'           // card drawn, pick action
-  | 'use-peek'        // 7/8: click own card to peek
-  | 'use-spy'         // 9/10: click opponent card to spy
-  | 'use-blind-my'    // J: pick your card first
-  | 'use-blind-opp'   // J: now pick opponent card
-  | 'use-seen-my'     // Q/K: pick your card first
-  | 'use-seen-opp';   // Q/K: now pick opponent card
+type UIMode = 'idle' | 'drawn' | 'use-peek' | 'use-spy'
+  | 'use-blind-my' | 'use-blind-opp' | 'use-seen-my' | 'use-seen-opp';
+
+const specialName = (v: number | null) => {
+  if (!v) return null;
+  if (v === 6 || v === 7) return '👁 Peek (your card)';
+  if (v === 8 || v === 9) return '🕵️ Spy (opponent)';
+  if (v === 10 || v === 11) return '🔀 Blind Swap';
+  if (v >= 12) return '🔀 Seen Swap';
+  return null;
+};
 
 export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => {
   const {
@@ -90,69 +97,62 @@ export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => 
 
   const [mode, setMode] = useState<UIMode>('idle');
   const [myCardSel, setMyCardSel] = useState<number | null>(null);
-  const [oppSeatSel, setOppSeatSel] = useState<number | null>(null);
-  const [swappedIdx, setSwappedIdx] = useState<number | null>(null);    // flash animation
-  const [peekedIdx, setPeekedIdx] = useState<{ seat: number; idx: number } | null>(null);
+  const [flashIdx, setFlashIdx] = useState<number | null>(null);
+  const [peekedAt, setPeekedAt] = useState<{ seat: number; idx: number } | null>(null);
   const [peekCountdown, setPeekCountdown] = useState(7);
-  const peekTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Load + poll ─────────────────────────────────────────────────
   useEffect(() => {
     loadGameState(gameId);
     const iv = setInterval(() => loadGameState(gameId), 4000);
     return () => clearInterval(iv);
   }, [gameId]);
 
-  // ── Reset mode when drawnCard changes ───────────────────────────
   useEffect(() => {
-    if (!drawnCard) { setMode('idle'); setMyCardSel(null); setOppSeatSel(null); }
+    if (!drawnCard) { setMode('idle'); setMyCardSel(null); }
     else setMode('drawn');
   }, [drawnCard?.id]);
 
-  // ── Peek phase countdown ─────────────────────────────────────────
+  // Peek phase countdown
   useEffect(() => {
     if (game?.phase === 'peeking') {
       setPeekCountdown(7);
-      peekTimer.current = setInterval(() => {
-        setPeekCountdown(p => {
-          if (p <= 1) { clearInterval(peekTimer.current!); return 0; }
-          return p - 1;
-        });
+      timerRef.current = setInterval(() => {
+        setPeekCountdown(p => { if (p <= 1) { clearInterval(timerRef.current!); return 0; } return p - 1; });
       }, 1000);
     } else {
-      if (peekTimer.current) clearInterval(peekTimer.current);
+      if (timerRef.current) clearInterval(timerRef.current);
     }
-    return () => { if (peekTimer.current) clearInterval(peekTimer.current); };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [game?.phase]);
 
-  // ── Swap flash ───────────────────────────────────────────────────
-  const flashSwap = (idx: number) => {
-    setSwappedIdx(idx);
-    setTimeout(() => setSwappedIdx(null), 1200);
+  const flash = (idx: number) => {
+    setFlashIdx(idx);
+    setTimeout(() => setFlashIdx(null), 1000);
+  };
+  const peek = (seat: number, idx: number, ms = 3000) => {
+    setPeekedAt({ seat, idx });
+    setTimeout(() => setPeekedAt(null), ms);
   };
 
-  // ── Peek flash ───────────────────────────────────────────────────
-  const flashPeek = (seat: number, idx: number, duration = 3000) => {
-    setPeekedIdx({ seat, idx });
-    setTimeout(() => setPeekedIdx(null), duration);
-  };
-
-  if (!game) {
-    return (
-      <div className="mpt-loading">
-        <div className="splash-spinner" />
-        <p style={{ color: 'rgba(255,255,255,0.5)', marginTop: 16 }}>Loading game…</p>
+  if (!game) return (
+    <div className="game-container">
+      <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
+        <div className="splash-spinner" style={{ margin: '0 auto 16px' }} />
+        Loading game…
       </div>
-    );
-  }
+    </div>
+  );
 
-  // ── Derived state ────────────────────────────────────────────────
   const isMyTurn = game.current_turn_seat === mySeat;
   const phase = game.phase;
   const isPeeking = phase === 'peeking';
   const isPlaying = phase === 'playing';
-  const isRoundEnd = phase === 'round_end';
-  const isGameEnd = phase === 'game_end';
+  const isEnd = phase === 'round_end' || phase === 'game_end';
+
+  // Sort players: me at bottom (slot-bottom), others distributed top/left/right
+  const me = players.find(p => p.seat_index === mySeat);
+  const others = players.filter(p => p.seat_index !== mySeat);
 
   const myCards = cards
     .filter(c => c.owner_seat === mySeat && c.location === 'hand')
@@ -160,339 +160,279 @@ export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => 
 
   const deckCards = cards.filter(c => c.location === 'deck');
   const discardCards = cards.filter(c => c.location === 'discard');
-  const topDiscard = discardCards[discardCards.length - 1] ?? null;
-  const opponents = players.filter(p => p.seat_index !== mySeat);
-  const me = players.find(p => p.seat_index === mySeat);
+  const topDiscard = discardCards.length ? discardCards[discardCards.length - 1] : null;
+
   const activePlayer = players.find(p => p.seat_index === game.current_turn_seat);
 
-  const drawnSpecial = specialName(drawnCard?.value ?? null);
+  const getOppCards = (seat: number) =>
+    cards.filter(c => c.owner_seat === seat && c.location === 'hand')
+      .sort((a, b) => (a.hand_index ?? 0) - (b.hand_index ?? 0));
 
-  // ── Action handlers ──────────────────────────────────────────────
-  const handleDraw = async () => {
-    if (!isMyTurn || drawnCard || !isPlaying) return;
-    await drawCard();
-  };
+  // Assign slots to opponents
+  const slotMap: Record<number, 'top' | 'left' | 'right'> = {};
+  const slotOrder: ('top' | 'left' | 'right')[] = ['top', 'left', 'right'];
+  others.forEach((p, i) => { if (i < 3) slotMap[p.seat_index] = slotOrder[i]; });
 
-  const handleDiscard = async () => {
-    await keepCard();
-    setMode('idle');
-  };
+  const canClickOpp = isMyTurn && (mode === 'use-spy' || mode === 'use-blind-opp' || mode === 'use-seen-opp');
 
-  const handleSwapMyCard = async (idx: number) => {
-    flashSwap(idx);
-    await swapDrawn(idx);
-    setMode('idle');
-  };
-
-  // Peek ability (7/8): click own card
-  const handlePeekCard = async (idx: number) => {
-    await peekCard(idx);
-    flashPeek(mySeat!, idx, 3000);
-    setMode('idle');
-    // discard the drawn card too
-    await keepCard();
-  };
-
-  // Spy ability (9/10): click opponent card
-  const handleSpyCard = async (oppSeat: number, idx: number) => {
-    await spyCard(oppSeat, idx);
-    flashPeek(oppSeat, idx, 3000);
-    setMode('idle');
-    await keepCard();
-  };
-
-  // Blind swap (J): my card selected, now pick opponent
-  const handleBlindSwapConfirm = async (oppSeat: number, oppIdx: number) => {
-    flashSwap(myCardSel!);
-    await blindSwap(myCardSel!, oppSeat, oppIdx);
-    setMode('idle'); setMyCardSel(null); setOppSeatSel(null);
-    await keepCard();
-  };
-
-  // Seen swap (Q/K): my card selected, now pick opponent
-  const handleSeenSwapConfirm = async (oppSeat: number, oppIdx: number) => {
-    flashPeek(mySeat!, myCardSel!, 2000);
-    flashPeek(oppSeat, oppIdx, 2000);
-    setTimeout(async () => {
-      flashSwap(myCardSel!);
-      await swapWithPeek(myCardSel!, oppSeat, oppIdx);
-      setMode('idle'); setMyCardSel(null); setOppSeatSel(null);
-      await keepCard();
-    }, 2100);
-  };
-
-  const handleCabo = async () => {
-    await callCabo();
-  };
-
-  const handleLeave = async () => {
-    await leaveGame();
-    onLeave();
-  };
-
-  const handleNextRound = async () => {
-    await nextRound();
-  };
-
-  // ── My card click logic (context-dependent) ───────────────────────
-  const handleMyCardClick = (idx: number) => {
-    if (mode === 'drawn') { handleSwapMyCard(idx); return; }
-    if (mode === 'use-peek') { handlePeekCard(idx); return; }
-    if (mode === 'use-blind-my') { setMyCardSel(idx); setMode('use-blind-opp'); return; }
-    if (mode === 'use-seen-my') { setMyCardSel(idx); setMode('use-seen-opp'); return; }
-  };
-
-  // ── Opponent card click logic ────────────────────────────────────
-  const handleOppCardClick = (seat: number, idx: number) => {
-    if (mode === 'use-spy') { handleSpyCard(seat, idx); return; }
-    if (mode === 'use-blind-opp') { handleBlindSwapConfirm(seat, idx); return; }
-    if (mode === 'use-seen-opp') { handleSeenSwapConfirm(seat, idx); return; }
-  };
-
-  // ── Instruction bar text ─────────────────────────────────────────
+  // ── Instruction text ─────────────────────────────────────────
   const instrText = () => {
-    if (mode === 'drawn' && !drawnSpecial) return 'Click one of your cards to swap — or discard';
-    if (mode === 'drawn' && drawnSpecial) return `Click a card to swap it in — or use ability: ${drawnSpecial}`;
-    if (mode === 'use-peek') return '👁 Click one of YOUR cards to peek at it (3 sec)';
-    if (mode === 'use-spy') return '👁 Click an OPPONENT\'S card to spy on it (3 sec)';
-    if (mode === 'use-blind-my') return '🔀 Click YOUR card to swap out';
-    if (mode === 'use-blind-opp') return '🔀 Now click the OPPONENT\'S card to swap with';
-    if (mode === 'use-seen-my') return '🔀 Click YOUR card to swap out';
-    if (mode === 'use-seen-opp') return '🔀 Now click the OPPONENT\'S card to swap with';
-    if (isMyTurn && isPlaying && !drawnCard) return '⬇️ Click the deck to draw a card — or call CABO';
-    return '';
+    if (isPeeking) return `👀 Memorize your bottom 2 cards — ${peekCountdown}s`;
+    if (mode === 'drawn' && !drawnCard) return '';
+    if (mode === 'drawn') return `Drawn: ${rankStr(drawnCard!.value)} ${suitStr(drawnCard!.suit)} — swap a card below, use ability, or discard`;
+    if (mode === 'use-peek') return '👁 Click ONE of your cards to peek at it';
+    if (mode === 'use-spy') return '🕵️ Click an opponent\'s card to spy on it';
+    if (mode === 'use-blind-my') return '🔀 Select YOUR card to swap out';
+    if (mode === 'use-blind-opp') return '🔀 Now select the OPPONENT\'S card';
+    if (mode === 'use-seen-my') return '🔀 Select YOUR card to swap (you\'ll see both first)';
+    if (mode === 'use-seen-opp') return '🔀 Now select the OPPONENT\'S card';
+    if (isMyTurn && isPlaying && !drawnCard) return 'Your turn — click the deck to draw';
+    return `${activePlayer?.username ?? '...'}'s turn`;
+  };
+
+  // ── Player area (opponents) ───────────────────────────────────
+  const renderOppSlot = (slot: 'top' | 'left' | 'right') => {
+    const opp = others.find(o => slotMap[o.seat_index] === slot);
+    if (!opp) return null;
+    const oppCards = getOppCards(opp.seat_index);
+    const isActive = game.current_turn_seat === opp.seat_index;
+    return (
+      <div className={`slot-${slot}`}>
+        <div className="player-area">
+          <div className="player-info">
+            <div className={`player-name ${isActive ? 'active' : ''}`}>
+              {isActive && <span className="turn-dot" />}
+              {opp.username}
+            </div>
+            <div className="player-score">{opp.total_score} pts</div>
+          </div>
+          <div className="player-cards-grid">
+            {(oppCards.length > 0 ? oppCards : Array.from({ length: 4 }) as any[]).map((c: MPCard | null, i) => {
+              const isPeekedHere = peekedAt?.seat === opp.seat_index && peekedAt.idx === i;
+              return (
+                <MPCardView
+                  key={c?.id ?? i}
+                  card={c ?? undefined}
+                  faceDown={!isPeekedHere}
+                  size="sm"
+                  glow={isPeekedHere || (canClickOpp)}
+                  clickable={canClickOpp}
+                  label={isPeekedHere ? '👁' : undefined}
+                  onClick={canClickOpp ? () => {
+                    if (mode === 'use-spy') { spyCard(opp.seat_index, i).then(() => { peek(opp.seat_index, i); }); setMode('idle'); }
+                    else if (mode === 'use-blind-opp') { blindSwap(myCardSel!, opp.seat_index, i); setMode('idle'); setMyCardSel(null); flash(myCardSel!); }
+                    else if (mode === 'use-seen-opp') { peek(mySeat!, myCardSel!, 2500); peek(opp.seat_index, i, 2500); setTimeout(() => { swapWithPeek(myCardSel!, opp.seat_index, i); flash(myCardSel!); setMode('idle'); setMyCardSel(null); }, 2600); }
+                  } : undefined}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="mpt-root">
+    <div className="game-container">
+      <div className="table-surface">
 
-      {/* ── Top bar ── */}
-      <div className="mpt-topbar">
-        <div className="mpt-topbar-left">
-          <span className="mpt-round">Round {game.current_round}/10</span>
-          {game.cabo_called && <span className="mpt-cabo-alert">🚨 CABO!</span>}
-        </div>
-        <div className="mpt-topbar-center">
-          {isPeeking
-            ? <span className="mpt-phase-badge peeking">👀 Peek phase — {peekCountdown}s</span>
-            : isMyTurn
-              ? <span className="mpt-phase-badge myturn">⭐ Your Turn</span>
-              : <span className="mpt-phase-badge waiting">
-                  {activePlayer?.username ?? '...'}'s turn
-                </span>
-          }
-        </div>
-        <div className="mpt-topbar-right">
-          <button className="btn btn-ghost btn-sm" onClick={handleLeave}>← Leave</button>
-        </div>
-      </div>
+        {/* ── Status bar ── */}
+        <div className="game-status-bar">{instrText()}</div>
 
-      {/* ── Error bar ── */}
-      {error && (
-        <div className="mpt-error">⚠️ {error} <button onClick={() => setError(null)}>✕</button></div>
-      )}
-
-      {/* ── Instruction bar ── */}
-      {instrText() && (
-        <div className="mpt-instruction">{instrText()}</div>
-      )}
-
-      {/* ── End overlays ── */}
-      {(isRoundEnd || isGameEnd) && (
-        <div className="mpt-end-overlay">
-          <div className="mpt-end-card">
-            <div className="mpt-end-title">{isGameEnd ? '🏆 Game Over!' : '🃏 Round Over!'}</div>
-            <div className="mpt-end-scores">
-              {[...players].sort((a, b) => a.total_score - b.total_score).map((p, i) => (
-                <div key={p.id} className={`mpt-score-row ${i === 0 ? 'winner' : ''}`}>
-                  <span>{i === 0 ? '🥇 ' : `${i + 1}. `}{p.username}{p.seat_index === mySeat ? ' (you)' : ''}</span>
-                  <span className="mpt-score-val">{p.total_score} pts</span>
-                </div>
-              ))}
+        {/* ── Peek overlay ── */}
+        {isPeeking && (
+          <div className="peek-overlay">
+            <div className="peek-title">Memorize Your Bottom 2 Cards</div>
+            <div className="peek-bar-track">
+              <div className="peek-bar-fill" style={{ width: `${(peekCountdown / 7) * 100}%` }} />
             </div>
-            {isRoundEnd && me?.seat_index === 0 && (
-              <button className="btn btn-green btn-lg w-full" onClick={handleNextRound} disabled={loading}>
-                {loading ? '…' : '▶ Next Round'}
-              </button>
-            )}
-            {isRoundEnd && me?.seat_index !== 0 && (
-              <p className="mpt-waiting-msg">Waiting for host to start next round…</p>
-            )}
-            {isGameEnd && (
-              <button className="btn btn-ghost w-full mt-2" onClick={handleLeave}>← Back to Lobby</button>
-            )}
+            <div className="peek-time">{peekCountdown}s</div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── Table body ── */}
-      <div className="mpt-body">
+        {/* ── Cabo banner ── */}
+        {game.cabo_called && (
+          <div className="cabo-banner">
+            {players.find(p => p.seat_index === game.cabo_caller_seat)?.username ?? 'Someone'} called CABO!
+          </div>
+        )}
 
-        {/* Opponents row */}
-        <div className="mpt-opponents">
-          {opponents.map(opp => {
-            const oppCards = cards
-              .filter(c => c.owner_seat === opp.seat_index && c.location === 'hand')
-              .sort((a, b) => (a.hand_index ?? 0) - (b.hand_index ?? 0));
-            const isOppTurn = game.current_turn_seat === opp.seat_index;
-            const canClickOpp = mode === 'use-spy' || mode === 'use-blind-opp' || mode === 'use-seen-opp';
+        {/* ── Error bar ── */}
+        {error && (
+          <div className="mp-error-top">⚠️ {error} <button onClick={() => setError(null)}>✕</button></div>
+        )}
 
-            return (
-              <div key={opp.id} className={`mpt-opponent ${isOppTurn ? 'active' : ''}`}>
-                <div className="mpt-opp-name">
-                  {isOppTurn && <span className="mpt-active-dot" />}
-                  {opp.username}
-                  <span className="mpt-opp-score">{opp.total_score}pt</span>
+        {/* ── Table grid ── */}
+        <div className="table-layout">
+
+          {/* Opponents in their slots */}
+          {renderOppSlot('top')}
+          {renderOppSlot('left')}
+          {renderOppSlot('right')}
+
+          {/* Center: deck + drawn + discard */}
+          <div className="slot-center">
+            <div className="table-center-area">
+
+              {/* Deck */}
+              <div
+                className={`deck-container ${(!isMyTurn || drawnCard || !isPlaying) ? 'disabled' : ''}`}
+                onClick={isMyTurn && !drawnCard && isPlaying ? drawCard : undefined}
+              >
+                <div className="deck-shadow-card card-md" style={{ top: 2, left: 2 }} />
+                <div className="deck-shadow-card card-md" style={{ top: 4, left: 4 }} />
+                <div className="deck-top-card card-md">
+                  <div className="card-back-inner" />
                 </div>
-                <div className="mpt-cards-row">
-                  {(oppCards.length > 0 ? oppCards : Array.from({ length: 4 }).map(() => null)).map((c, i) => {
-                    const isPeekedHere = peekedIdx?.seat === opp.seat_index && peekedIdx.idx === i;
-                    const clickable = canClickOpp && isMyTurn;
-                    return (
-                      <Card
-                        key={c?.id ?? i}
-                        card={c ?? undefined}
-                        faceDown={!isPeekedHere}
-                        small
-                        highlighted={clickable}
-                        glowing={clickable}
-                        peeked={isPeekedHere}
-                        onClick={clickable ? () => handleOppCardClick(opp.seat_index, i) : undefined}
-                        label={isPeekedHere ? '👁' : undefined}
-                      />
-                    );
-                  })}
-                </div>
+                <div className="deck-label">{deckCards.length} cards</div>
               </div>
-            );
-          })}
-        </div>
 
-        {/* Center: deck + drawn + discard */}
-        <div className="mpt-center">
-
-          {/* Deck */}
-          <div className="mpt-pile">
-            <div className="mpt-pile-label">DECK · {deckCards.length}</div>
-            <div
-              className={`mpt-deck ${isMyTurn && !drawnCard && isPlaying ? 'clickable' : ''}`}
-              onClick={handleDraw}
-            >
-              {deckCards.length > 0 ? <Card faceDown /> : <div className="mpt-empty">Empty</div>}
-            </div>
-            {isMyTurn && !drawnCard && isPlaying && (
-              <div className="mpt-pile-hint">click</div>
-            )}
-          </div>
-
-          {/* Drawn card + actions */}
-          {drawnCard && isMyTurn && (
-            <div className="mpt-drawn-area">
-              <div className="mpt-pile-label">DRAWN</div>
-              <Card card={drawnCard} glowing />
-              <div className="mpt-drawn-btns">
-                <button className="mpt-action-btn discard" onClick={handleDiscard}>
-                  🗑 Discard
-                </button>
-                {drawnSpecial && (
-                  <button
-                    className="mpt-action-btn ability"
-                    onClick={() => {
-                      const v = drawnCard.value ?? 0;
-                      if (v === 7 || v === 8) setMode('use-peek');
-                      else if (v === 9 || v === 10) setMode('use-spy');
-                      else if (v === 11) { setMode('use-blind-my'); }
-                      else if (v >= 12) { setMode('use-seen-my'); }
-                    }}
-                  >
-                    ✨ {drawnSpecial}
+              {/* Drawn card (floating) */}
+              {drawnCard && isMyTurn && (
+                <div className="mp-drawn-panel">
+                  <div className="mp-drawn-label">DRAWN</div>
+                  <MPCardView card={drawnCard} glow size="md" />
+                  {specialName(drawnCard.value) && (
+                    <button
+                      className="mp-ability-btn"
+                      onClick={() => {
+                        const v = drawnCard.value ?? 0;
+                        if (v === 7 || v === 8) setMode('use-peek');
+                        else if (v === 9 || v === 10) setMode('use-spy');
+                        else if (v === 11) setMode('use-blind-my');
+                        else if (v >= 12) setMode('use-seen-my');
+                      }}
+                    >
+                      {specialName(drawnCard.value)}
+                    </button>
+                  )}
+                  <button className="mp-discard-btn" onClick={() => { keepCard(); setMode('idle'); }}>
+                    🗑 Discard
                   </button>
-                )}
-              </div>
-              <div className="mpt-drawn-hint">or click your card to swap ↓</div>
-            </div>
-          )}
+                  {(mode === 'use-peek' || mode === 'use-spy' || mode.startsWith('use-blind') || mode.startsWith('use-seen')) && (
+                    <button className="mp-cancel-btn" onClick={() => setMode('drawn')}>✕ Cancel</button>
+                  )}
+                </div>
+              )}
 
-          {/* Discard */}
-          <div className="mpt-pile">
-            <div className="mpt-pile-label">DISCARD</div>
-            <div className="mpt-discard">
-              {topDiscard ? <Card card={topDiscard} /> : <div className="mpt-empty">Empty</div>}
+              {/* Discard pile */}
+              <div className="discard-area">
+                <div style={{ textAlign: 'center' }}>
+                  <div className="deck-label" style={{ marginBottom: 4 }}>DISCARD</div>
+                  {topDiscard
+                    ? <MPCardView card={topDiscard} size="md" />
+                    : <div className="card-md" style={{ border: '2px dashed rgba(255,255,255,0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>empty</div>
+                  }
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Bottom — MY cards */}
+          <div className="slot-bottom">
+            <div className="player-area">
+              <div className="player-info">
+                <div className={`player-name ${isMyTurn ? 'active' : ''}`}>
+                  {isMyTurn && <span className="turn-dot" />}
+                  {me?.username ?? 'You'} <span style={{ fontSize: 10, opacity: 0.4 }}>(you)</span>
+                </div>
+                <div className="player-score">{me?.total_score ?? 0} pts</div>
+              </div>
+              <div className="player-cards-grid">
+                {(myCards.length > 0 ? myCards : Array.from({ length: 4 }) as any[]).map((c: MPCard | null, i) => {
+                  const isBottom = i >= 2; // bottom 2 cards are peeked during peeking phase
+                  const isBeingPeeked = peekedAt?.seat === mySeat && peekedAt.idx === i;
+                  const canClick = isMyTurn && (mode === 'drawn' || mode === 'use-peek' || mode === 'use-blind-my' || mode === 'use-seen-my');
+                  const isSelected = myCardSel === i;
+
+                  return (
+                    <MPCardView
+                      key={c?.id ?? i}
+                      card={c ?? undefined}
+                      size="md"
+                      faceDown={false} // Server always sends our own card values
+                      glow={isSelected || isBeingPeeked || (isPeeking && isBottom) || (mode === 'drawn' && isMyTurn)}
+                      flash={flashIdx === i}
+                      dimmed={isPeeking && !isBottom}
+                      clickable={canClick}
+                      label={
+                        isBeingPeeked ? '👁 PEEK'
+                        : isPeeking && isBottom ? '👁'
+                        : flashIdx === i ? '🔄'
+                        : undefined
+                      }
+                      onClick={canClick ? () => {
+                        if (mode === 'drawn') { flash(i); swapDrawn(i); setMode('idle'); }
+                        else if (mode === 'use-peek') { peekCard(i).then(() => { peek(mySeat!, i); }); setMode('idle'); }
+                        else if (mode === 'use-blind-my') { setMyCardSel(i); setMode('use-blind-opp'); }
+                        else if (mode === 'use-seen-my') { setMyCardSel(i); setMode('use-seen-opp'); }
+                      } : undefined}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* CABO button */}
+              {isMyTurn && !drawnCard && isPlaying && !game.cabo_called && (
+                <button className="cabo-call-btn mt-2" onClick={callCabo}>📢 CABO</button>
+              )}
+            </div>
+          </div>
+
+        </div>{/* table-layout */}
+
+        {/* ── Round badge ── */}
+        <div className="round-badge">
+          Round <span className="round-badge-num">{game.current_round}</span>/10
         </div>
 
-        {/* Action log */}
-        <div className="mpt-log">
-          {[...actionLog].reverse().slice(0, 7).reverse().map((msg, i) => (
-            <div key={i} className="mpt-log-entry">
-              <span className="mpt-log-dot">·</span> {msg}
+        {/* ── Action log ── */}
+        <div className="action-log">
+          {actionLog.slice(-6).map((entry, i, arr) => (
+            <div key={i} className="action-log-entry" style={{ opacity: 0.35 + (i / arr.length) * 0.65 }}>
+              {entry}
             </div>
           ))}
         </div>
 
-        {/* My hand */}
-        <div className="mpt-my-area">
-          <div className="mpt-my-label">
-            <span>{me?.username ?? 'You'}</span>
-            <span className="mpt-my-score">{me?.total_score ?? 0} pts</span>
-          </div>
-          <div className="mpt-cards-row mpt-my-cards">
-            {myCards.map((c, i) => {
-              // Bottom 2 cards (index 2,3) are glowing during peek phase
-              const isBottomTwo = i >= 2;
-              const isSwapTarget = mode === 'drawn';
-              const isPeekTarget = mode === 'use-peek';
-              const isBlindPick = mode === 'use-blind-my' || mode === 'use-seen-my';
-              const clickable = isMyTurn && (isSwapTarget || isPeekTarget || isBlindPick);
-              const isJustSwapped = swappedIdx === i;
-              const isBeingPeeked = peekedIdx?.seat === mySeat && peekedIdx.idx === i;
+        {/* ── Leave button ── */}
+        <button className="mp-leave-btn" onClick={async () => { await leaveGame(); onLeave(); }}>
+          ← Leave
+        </button>
 
-              return (
-                <div key={c.id} className="mpt-my-card-wrap">
-                  <Card
-                    card={c}
-                    highlighted={clickable || isJustSwapped}
-                    glowing={(isPeeking && isBottomTwo) || isJustSwapped || isBeingPeeked}
-                    swapped={isJustSwapped}
-                    peeked={isBeingPeeked}
-                    dimmed={isPeeking && !isBottomTwo}
-                    onClick={clickable ? () => handleMyCardClick(i) : undefined}
-                    label={
-                      isPeeking && isBottomTwo ? '👁 PEEK'
-                      : isJustSwapped ? '🔄'
-                      : isBeingPeeked ? '👁'
-                      : undefined
-                    }
-                  />
-                  <div className="mpt-card-idx">{i + 1}</div>
-                </div>
-              );
-            })}
-            {myCards.length === 0 && Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="mpt-my-card-wrap">
-                <Card faceDown />
-                <div className="mpt-card-idx">{i + 1}</div>
+        {/* ── Round/Game End overlay ── */}
+        {isEnd && (
+          <div className="mp-end-overlay">
+            <div className="mp-end-card animate-fade-in">
+              <div className="mp-end-title">
+                {phase === 'game_end' ? '🏆 Game Over!' : '🃏 Round Over!'}
               </div>
-            ))}
+              <div className="mp-end-scores">
+                {[...players].sort((a, b) => a.total_score - b.total_score).map((p, i) => (
+                  <div key={p.id} className={`mp-score-row ${i === 0 ? 'winner' : ''}`}>
+                    <span>{i === 0 ? '🥇 ' : `${i + 1}. `}{p.username}{p.seat_index === mySeat ? ' (you)' : ''}</span>
+                    <span className="mp-score-val">{p.total_score} pts</span>
+                  </div>
+                ))}
+              </div>
+              {phase === 'round_end' && mySeat === 0 && (
+                <button className="btn btn-green btn-lg w-full" onClick={nextRound} disabled={loading}>
+                  ▶ Next Round
+                </button>
+              )}
+              {phase === 'round_end' && mySeat !== 0 && (
+                <p className="mp-waiting-msg">Waiting for host to start next round…</p>
+              )}
+              {phase === 'game_end' && (
+                <button className="btn btn-ghost w-full" onClick={async () => { await leaveGame(); onLeave(); }}>
+                  ← Back to Lobby
+                </button>
+              )}
+            </div>
           </div>
+        )}
 
-          {/* CABO button */}
-          {isMyTurn && !drawnCard && isPlaying && !game.cabo_called && (
-            <button className="mpt-cabo-btn" onClick={handleCabo}>
-              📢 Call CABO
-            </button>
-          )}
-
-          {/* Cancel ability */}
-          {(mode === 'use-peek' || mode === 'use-spy' || mode === 'use-blind-my' || mode === 'use-blind-opp' || mode === 'use-seen-my' || mode === 'use-seen-opp') && (
-            <button className="mpt-cancel-btn" onClick={() => { setMode('drawn'); setMyCardSel(null); }}>
-              ✕ Cancel ability
-            </button>
-          )}
-        </div>
-
-      </div>{/* end mpt-body */}
+      </div>{/* table-surface */}
     </div>
   );
 };

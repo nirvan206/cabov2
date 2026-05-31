@@ -74,6 +74,7 @@ export const advanceTurn = async (supabase: any, gameId: string) => {
   const nextIdx = (currentIdx + 1) % seats.length;
   const nextSeat = seats[nextIdx];
 
+  // If cabo was called and we've gone around back to the caller → end round
   if (game.cabo_called && nextSeat === game.cabo_caller_seat) {
     await endRound(supabase, gameId);
     return;
@@ -82,13 +83,61 @@ export const advanceTurn = async (supabase: any, gameId: string) => {
   await supabase.from('games').update({ current_turn_seat: nextSeat }).eq('id', gameId);
 };
 
+// Discard the active drawn card (hand_index=99) with the correct face-up/down
+// used_ability=true → discard_up (face-up, visible to all)
+// used_ability=false → discard_down (face-down, secret)
+export const discardDrawnCard = async (supabase: any, gameId: string, seatIndex: number, usedAbility: boolean) => {
+  const { data: drawn } = await supabase.from('cards')
+    .select('id').eq('game_id', gameId).eq('owner_seat', seatIndex).eq('hand_index', 99).maybeSingle();
+  if (!drawn) return;
+  const location = usedAbility ? 'discard_up' : 'discard_down';
+  await supabase.from('cards').update({
+    location,
+    owner_seat: null,
+    face_up: usedAbility,
+  }).eq('id', drawn.id);
+};
+
+// Refresh deck from both discard piles when deck runs out
+export const refreshDeckIfEmpty = async (supabase: any, gameId: string) => {
+  const { data: deck } = await supabase.from('cards')
+    .select('id').eq('game_id', gameId).eq('location', 'deck').limit(1);
+  if (deck && deck.length > 0) return; // still has cards
+
+  // Collect all discarded cards (both stacks), excluding player hands and drawn card
+  const { data: discardCards } = await supabase.from('cards')
+    .select('id')
+    .eq('game_id', gameId)
+    .in('location', ['discard_up', 'discard_down']);
+
+  if (!discardCards || discardCards.length === 0) return; // nothing to recycle
+
+  // Fisher-Yates shuffle of IDs then reassign hand_index (deck position)
+  const ids = discardCards.map((c: any) => c.id);
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+
+  for (let i = 0; i < ids.length; i++) {
+    await supabase.from('cards').update({
+      location: 'deck',
+      owner_seat: null,
+      face_up: false,
+      hand_index: i,
+    }).eq('id', ids[i]);
+  }
+};
+
 export const endRound = async (supabase: any, gameId: string) => {
   const { data: game } = await supabase.from('games').select('*').eq('id', gameId).single();
   const { data: players } = await supabase.from('game_players').select('*').eq('game_id', gameId);
   const { data: cards } = await supabase.from('cards').select('*').eq('game_id', gameId).eq('location', 'hand');
 
+  // Reveal all hand cards
   await supabase.from('cards').update({ face_up: true }).eq('game_id', gameId).eq('location', 'hand');
 
+  // Calculate and store round scores
   for (const player of players) {
     const playerCards = cards.filter((c: any) => c.owner_seat === player.seat_index);
     const roundScore = playerCards.reduce((sum: number, c: any) => sum + c.value, 0);

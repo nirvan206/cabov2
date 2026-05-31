@@ -4,9 +4,10 @@ import { useMPStore } from '../../store/mpStore';
 
 interface LobbyProps {
   onGameJoined: (gameId: string) => void;
+  onAccount: () => void;
 }
 
-export const Lobby: React.FC<LobbyProps> = ({ onGameJoined }) => {
+export const Lobby: React.FC<LobbyProps> = ({ onGameJoined, onAccount }) => {
   const { profile, signOut } = useAuthStore();
   const { createGame, joinGame, loading, error, setError } = useMPStore();
 
@@ -34,11 +35,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onGameJoined }) => {
       <div className="lobby-header">
         <div className="lobby-logo">🃏 CABO</div>
         <div className="lobby-user">
-          {profile?.avatar_url && (
-            <img src={profile.avatar_url} className="lobby-avatar" alt="avatar" />
-          )}
-          <span className="lobby-username">{profile?.username}</span>
-          <button className="btn btn-ghost btn-sm" onClick={signOut}>Sign Out</button>
+          <button className="lobby-account-btn" onClick={onAccount}>
+            {profile?.avatar_url
+              ? <img src={profile.avatar_url} className="lobby-avatar" alt="avatar" />
+              : <div className="lobby-avatar-placeholder">👤</div>
+            }
+            <span className="lobby-username">{profile?.username ?? 'Account'}</span>
+          </button>
         </div>
       </div>
 

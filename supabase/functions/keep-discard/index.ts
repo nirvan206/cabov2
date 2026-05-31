@@ -1,4 +1,6 @@
-import { getUser, getServiceClient, getPlayerSeat, logAction, advanceTurn, corsHeaders, ok, err } from '../_shared/utils.ts';
+// keep-discard: player chose NOT to use special ability
+// Drawn card goes face-DOWN to the "Unused" discard stack
+import { getUser, getServiceClient, getPlayerSeat, logAction, discardDrawnCard, advanceTurn, corsHeaders, ok, err } from '../_shared/utils.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -11,19 +13,15 @@ Deno.serve(async (req) => {
     const { data: game } = await supabase.from('games').select('*').eq('id', game_id).single();
     if (game.current_turn_seat !== seat_index) throw new Error('Not your turn');
 
-    // Find the drawn card (hand_index = 99)
+    // Verify drawn card exists
     const { data: drawn } = await supabase.from('cards')
-      .select('*').eq('game_id', game_id).eq('owner_seat', seat_index).eq('hand_index', 99).single();
+      .select('id').eq('game_id', game_id).eq('owner_seat', seat_index).eq('hand_index', 99).single();
     if (!drawn) throw new Error('No drawn card');
 
-    // Discard it face up
-    await supabase.from('cards').update({
-      location: 'discard_up',
-      owner_seat: null,
-      face_up: true,
-    }).eq('id', drawn.id);
+    // No ability used → face-DOWN secret discard stack
+    await discardDrawnCard(supabase, game_id, seat_index, false);
 
-    await logAction(supabase, game_id, seat_index, `Seat ${seat_index} discarded drawn card`);
+    await logAction(supabase, game_id, seat_index, `Seat ${seat_index} discarded without using ability`);
     await advanceTurn(supabase, game_id);
 
     return ok({ message: 'Card discarded' });

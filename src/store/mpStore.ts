@@ -90,6 +90,11 @@ const invoke = async (fn: string, body: object) => {
   return data;
 };
 
+let currentAccessToken: string | null = null;
+supabase.auth.onAuthStateChange((_event, session) => {
+  currentAccessToken = session?.access_token ?? null;
+});
+
 export const useMPStore = create<MPStore>((set, get) => ({
   game: null,
   players: [],
@@ -321,6 +326,32 @@ export const useMPStore = create<MPStore>((set, get) => ({
     let cardUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
     let playerUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    const handleUnload = () => {
+      const mySeat = get().mySeat;
+      const g = get().game;
+      if (!g || g.status === 'finished') return;
+      const url = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/game-management';
+      if (mySeat === 0) {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'terminate-game', game_id: gameId }),
+          keepalive: true
+        });
+      } else if (mySeat !== null && mySeat > 0 && currentAccessToken) {
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentAccessToken}`
+          },
+          body: JSON.stringify({ type: 'leave-game', game_id: gameId }),
+          keepalive: true
+        });
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+
     let cardUpdateQueue: { eventType: string; newRow: any; oldRow: any }[] = [];
     let playerUpdateQueue: { eventType: string; newRow: any; oldRow: any }[] = [];
 
@@ -465,6 +496,7 @@ export const useMPStore = create<MPStore>((set, get) => ({
     set({ channel });
 
     return () => {
+      window.removeEventListener('beforeunload', handleUnload);
       if (hostDisconnectTimer) clearTimeout(hostDisconnectTimer);
       if (cardUpdateTimeout) clearTimeout(cardUpdateTimeout);
       if (playerUpdateTimeout) clearTimeout(playerUpdateTimeout);

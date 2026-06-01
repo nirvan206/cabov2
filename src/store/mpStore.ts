@@ -231,107 +231,124 @@ export const useMPStore = create<MPStore>((set, get) => ({
 
   // ── Draw Card ──────────────────────────────────────────────
   drawCard: async () => {
-    const { game } = get();
-    if (!game) return;
+    const { game, loading } = get();
+    if (!game || loading) return;
+    set({ loading: true, error: null });
     try {
       const data = await invoke('game-actions', { type: 'draw', game_id: game.id });
-      set({ drawnCard: data.card });
+      set({ drawnCard: data.card, loading: false });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
     }
   },
 
   // ── Keep (discard drawn) ────────────────────────────────────
   keepCard: async () => {
-    const { game } = get();
-    if (!game) return;
+    const { game, loading } = get();
+    if (!game || loading) return;
+    set({ loading: true, error: null });
     try {
       await invoke('game-actions', { type: 'keep-discard', game_id: game.id });
-      set({ drawnCard: null });
+      set({ drawnCard: null, loading: false });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
     }
   },
 
   // ── Swap Drawn with Hand ────────────────────────────────────
   swapDrawn: async (handIndex) => {
-    const { game } = get();
-    if (!game) return;
+    const { game, loading } = get();
+    if (!game || loading) return;
+    set({ loading: true, error: null });
     try {
       await invoke('game-actions', { type: 'swap-drawn', game_id: game.id, hand_index: handIndex });
-      set({ drawnCard: null });
+      set({ drawnCard: null, loading: false });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
     }
   },
 
   // ── Peek own card ───────────────────────────────────────────
   peekCard: async (cardIndex) => {
-    const { game } = get();
-    if (!game) return null;
+    const { game, loading } = get();
+    if (!game || loading) return null;
+    set({ loading: true, error: null });
     try {
-      return await invoke('game-actions', { type: 'peek', game_id: game.id, card_index: cardIndex });
+      const res = await invoke('game-actions', { type: 'peek', game_id: game.id, card_index: cardIndex });
+      set({ loading: false });
+      return res;
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
       return null;
     }
   },
 
   // ── Spy opponent card ───────────────────────────────────────
   spyCard: async (targetSeat, cardIndex) => {
-    const { game } = get();
-    if (!game) return null;
+    const { game, loading } = get();
+    if (!game || loading) return null;
+    set({ loading: true, error: null });
     try {
-      return await invoke('game-actions', { type: 'spy', game_id: game.id, target_seat: targetSeat, card_index: cardIndex });
+      const res = await invoke('game-actions', { type: 'spy', game_id: game.id, target_seat: targetSeat, card_index: cardIndex });
+      set({ loading: false });
+      return res;
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
       return null;
     }
   },
 
   // ── Blind Swap ──────────────────────────────────────────────
   blindSwap: async (myIndex, targetSeat, targetIndex) => {
-    const { game } = get();
-    if (!game) return;
+    const { game, loading } = get();
+    if (!game || loading) return;
+    set({ loading: true, error: null });
     try {
       await invoke('game-actions', { type: 'blind-swap', game_id: game.id, my_index: myIndex, target_seat: targetSeat, target_index: targetIndex });
+      set({ loading: false });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
     }
   },
 
   // ── Swap With Peek (Q/K) ────────────────────────────────────
   swapWithPeek: async (myIndex, targetSeat, targetIndex, phase: 'reveal' | 'swap' = 'swap') => {
-    const { game } = get();
-    if (!game) return null;
+    const { game, loading } = get();
+    if (!game || loading) return null;
+    set({ loading: true, error: null });
     try {
       const data = await invoke('game-actions', { type: 'swap-with-peek', game_id: game.id, my_index: myIndex, target_seat: targetSeat, target_index: targetIndex, phase });
+      set({ loading: false });
       return data;
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
       return null;
     }
   },
 
   // ── Call Cabo ───────────────────────────────────────────────
   callCabo: async () => {
-    const { game } = get();
-    if (!game) return;
+    const { game, loading } = get();
+    if (!game || loading) return;
+    set({ loading: true, error: null });
     try {
       await invoke('game-actions', { type: 'call-cabo', game_id: game.id });
+      set({ loading: false });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
     }
   },
 
   // ── Next Round ──────────────────────────────────────────────
   nextRound: async () => {
-    const { game } = get();
-    if (!game) return;
+    const { game, loading } = get();
+    if (!game || loading) return;
+    set({ loading: true, error: null });
     try {
       await invoke('game-flow', { type: 'next-round', game_id: game.id });
+      set({ loading: false });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, loading: false });
     }
   },
 

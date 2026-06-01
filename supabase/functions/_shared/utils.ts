@@ -106,47 +106,37 @@ export const refreshDeckIfEmpty = async (supabase: any, gameId: string) => {
 
   // Collect all discarded cards (both stacks), excluding player hands and drawn card
   const { data: discardCards } = await supabase.from('cards')
-    .select('id')
+    .select('*')
     .eq('game_id', gameId)
     .in('location', ['discard_up', 'discard_down']);
 
   if (!discardCards || discardCards.length === 0) return; // nothing to recycle
 
-  // Fisher-Yates shuffle of IDs then reassign hand_index (deck position)
-  const ids = discardCards.map((c: any) => c.id);
-  for (let i = ids.length - 1; i > 0; i--) {
+  // Fisher-Yates shuffle of cards
+  for (let i = discardCards.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [ids[i], ids[j]] = [ids[j], ids[i]];
+    [discardCards[i], discardCards[j]] = [discardCards[j], discardCards[i]];
   }
 
-  for (let i = 0; i < ids.length; i++) {
-    await supabase.from('cards').update({
-      location: 'deck',
-      owner_seat: null,
-      face_up: false,
-      hand_index: i,
-    }).eq('id', ids[i]);
-  }
+  const updates = discardCards.map((c: any, i: number) => ({
+    ...c,
+    location: 'deck',
+    owner_seat: null,
+    face_up: false,
+    hand_index: i,
+  }));
+
+  await supabase.from('cards').upsert(updates);
 };
 
 export const endRound = async (supabase: any, gameId: string) => {
   const { data: game } = await supabase.from('games').select('*').eq('id', gameId).single();
-  const { data: players } = await supabase.from('game_players').select('*').eq('game_id', gameId);
-  const { data: cards } = await supabase.from('cards').select('*').eq('game_id', gameId).eq('location', 'hand');
 
   // Reveal all hand cards
   await supabase.from('cards').update({ face_up: true }).eq('game_id', gameId).eq('location', 'hand');
 
-  // Calculate and store round scores
-  for (const player of players) {
-    const playerCards = cards.filter((c: any) => c.owner_seat === player.seat_index);
-    const roundScore = playerCards.reduce((sum: number, c: any) => sum + c.value, 0);
-    const newScores = [...(player.round_scores || []), roundScore];
-    await supabase.from('game_players').update({
-      round_scores: newScores,
-      total_score: player.total_score + roundScore,
-    }).eq('id', player.id);
-  }
+  // Calculate and store round scores in single SQL query via RPC
+  await supabase.rpc('end_round_scores', { p_game_id: gameId });
 
   const isGameEnd = game.current_round >= 10;
   await supabase.from('games').update({
@@ -165,3 +155,4 @@ export const ok = (data: object) =>
 
 export const err = (msg: string, status = 400) =>
   new Response(JSON.stringify({ error: msg }), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+

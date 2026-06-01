@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { supabase } from './lib/supabase';
 import { useAuthStore } from './store/authStore';
 import { useMPStore } from './store/mpStore';
 import { AuthScreen } from './components/Auth/AuthScreen';
-import { Lobby } from './components/Lobby/Lobby';
-import { WaitingRoom } from './components/Lobby/WaitingRoom';
-import { MPGameTable } from './components/Game/Table/MPGameTable';
-import { AccountPage } from './components/Account/AccountPage';
 import './App.css';
+
+const Lobby = lazy(() => import('./components/Lobby/Lobby').then(m => ({ default: m.Lobby })));
+const WaitingRoom = lazy(() => import('./components/Lobby/WaitingRoom').then(m => ({ default: m.WaitingRoom })));
+const MPGameTable = lazy(() => import('./components/Game/Table/MPGameTable').then(m => ({ default: m.MPGameTable })));
+const AccountPage = lazy(() => import('./components/Account/AccountPage').then(m => ({ default: m.AccountPage })));
 
 type AppScreen = 'auth' | 'lobby' | 'account' | 'waiting' | 'game';
 
@@ -16,11 +17,19 @@ const STORAGE_KEY_SCREEN = 'cabo_screen';
 
 const App: React.FC = () => {
   const { user, setSession, loadProfile, loading: authLoading } = useAuthStore();
-  const { loadGameState, subscribeToGame, clearGame } = useMPStore();
+  const { game, loadGameState, subscribeToGame, clearGame } = useMPStore();
 
   const [screen, setScreen]         = useState<AppScreen>('auth');
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [restored, setRestored]     = useState(false);
+
+  // ── Auto-kick if game terminates ─────────────────────────────
+  useEffect(() => {
+    if (game && game.phase === 'terminated' && screen !== 'lobby') {
+      alert("The game was terminated by the host.");
+      handleLeave();
+    }
+  }, [game?.phase, screen]);
 
   // ── Persist screen + gameId ──────────────────────────────────
   const goTo = (s: AppScreen, gameId?: string) => {
@@ -148,33 +157,39 @@ const App: React.FC = () => {
 
   return (
     <div className="App">
-      {screen === 'auth' && <AuthScreen />}
+      <Suspense fallback={
+        <div className="splash-screen">
+          <div className="splash-spinner" />
+        </div>
+      }>
+        {screen === 'auth' && <AuthScreen />}
 
-      {screen === 'lobby' && (
-        <Lobby
-          onGameJoined={(gameId) => goTo('waiting', gameId)}
-          onAccount={() => goTo('account')}
-        />
-      )}
+        {screen === 'lobby' && (
+          <Lobby
+            onGameJoined={(gameId) => goTo('waiting', gameId)}
+            onAccount={() => goTo('account')}
+          />
+        )}
 
-      {screen === 'account' && (
-        <AccountPage onBack={() => setScreen('lobby')} />
-      )}
+        {screen === 'account' && (
+          <AccountPage onBack={() => setScreen('lobby')} />
+        )}
 
-      {screen === 'waiting' && activeGameId && (
-        <WaitingRoom
-          gameId={activeGameId}
-          onGameStart={() => goTo('game', activeGameId)}
-          onLeave={handleLeave}
-        />
-      )}
+        {screen === 'waiting' && activeGameId && (
+          <WaitingRoom
+            gameId={activeGameId}
+            onGameStart={() => goTo('game', activeGameId)}
+            onLeave={handleLeave}
+          />
+        )}
 
-      {screen === 'game' && activeGameId && (
-        <MPGameTable
-          gameId={activeGameId}
-          onLeave={handleLeave}
-        />
-      )}
+        {screen === 'game' && activeGameId && (
+          <MPGameTable
+            gameId={activeGameId}
+            onLeave={handleLeave}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };

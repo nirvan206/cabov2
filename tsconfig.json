@@ -16,5 +16,20 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/components/Game/Table/GameTable.tsx",
+    "src/components/Game/Card/Card.tsx",
+    "src/components/Game/Card/SuitIcon.tsx",
+    "src/components/Game/Deck/DiscardStack.tsx",
+    "src/components/Game/Deck/Deck.tsx",
+    "src/components/Game/Player/PlayerArea.tsx",
+    "src/components/Game/SetupScreen.tsx",
+    "src/components/Game/ActionPanel.tsx",
+    "src/components/Game/GameEndModal.tsx",
+    "src/components/Game/RoundEndModal.tsx",
+    "src/components/Game/SwapOverlay.tsx",
+    "src/components/Game/CaboButton.tsx",
+    "src/components/Game/ActionModal.tsx"
+  ]
 }

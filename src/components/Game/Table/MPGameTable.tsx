@@ -547,10 +547,22 @@ export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => 
   };
 
   if (!game) return (
-    <div className="game-container">
-      <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
-        <div className="splash-spinner" style={{ margin: '0 auto 16px' }} />
-        Loading game…
+    <div className="game-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.8)', maxWidth: '400px', padding: '20px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px' }}>
+        {error ? (
+          <>
+            <div style={{ fontSize: '24px', marginBottom: '12px' }}>⚠️ Error Loading Game</div>
+            <div style={{ marginBottom: '24px', color: '#ff6b6b', wordBreak: 'break-word' }}>{error}</div>
+            <button className="btn btn-red w-full" onClick={onLeave}>
+              Go back to Lobby
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="splash-spinner" style={{ margin: '0 auto 16px' }} />
+            Loading game…
+          </>
+        )}
       </div>
     </div>
   );

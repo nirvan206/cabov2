@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { useMPStore, MPCard, MPPlayer } from '../../../store/mpStore';
 
 // ── Card value/suit helpers ──────────────────────────────────────
@@ -39,7 +40,15 @@ const MPCardView: React.FC<MPCardViewProps> = React.memo(({
   ].filter(Boolean).join(' ');
 
   return (
-    <div className={cls} onClick={onClick} style={{ position: 'relative' }}>
+    <motion.div
+      className={cls}
+      onClick={onClick}
+      style={{ position: 'relative' }}
+      layoutId={card?.id}
+      transition={{ type: 'spring', stiffness: 260, damping: 26 }}
+      whileHover={clickable ? { scale: 1.05, y: -4, transition: { duration: 0.15 } } : {}}
+      whileTap={clickable ? { scale: 0.95 } : {}}
+    >
       <div className={`card-flipper ${hidden ? 'flipped' : ''}`}>
         {/* FRONT FACE */}
         <div className="card-face-side">
@@ -70,7 +79,7 @@ const MPCardView: React.FC<MPCardViewProps> = React.memo(({
           <div className="card-back-inner" />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }, (prev, next) => {
   return prev.card?.id === next.card?.id &&

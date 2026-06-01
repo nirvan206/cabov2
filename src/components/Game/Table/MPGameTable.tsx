@@ -45,7 +45,7 @@ const MPCardView: React.FC<MPCardViewProps> = React.memo(({
       onClick={onClick}
       style={{ position: 'relative' }}
       layoutId={card?.id}
-      transition={{ type: 'spring', stiffness: 260, damping: 26 }}
+      transition={{ type: 'spring', stiffness: 55, damping: 15 }}
       whileHover={clickable ? { scale: 1.05, y: -4, transition: { duration: 0.15 } } : {}}
       whileTap={clickable ? { scale: 0.95 } : {}}
     >
@@ -123,6 +123,7 @@ const abilityBtnStyle = { background: '#3b82f6', borderColor: '#2563eb' };
 interface OpponentHandProps {
   opp: MPPlayer;
   oppCards: MPCard[];
+  oppDrawnCard: MPCard | null;
   isActive: boolean;
   canClickOpp: boolean;
   peekedAt: { seat: number; idx: number } | null;
@@ -132,7 +133,7 @@ interface OpponentHandProps {
 }
 
 const OpponentHand: React.FC<OpponentHandProps> = React.memo(({
-  opp, oppCards, isActive, canClickOpp, peekedAt, revealedCards, isEnd, onOppCardClick
+  opp, oppCards, oppDrawnCard, isActive, canClickOpp, peekedAt, revealedCards, isEnd, onOppCardClick
 }) => {
   return (
     <div className="player-area">
@@ -143,25 +144,33 @@ const OpponentHand: React.FC<OpponentHandProps> = React.memo(({
         </div>
         <div className="player-score">{opp.total_score} pts</div>
       </div>
-      <div className="player-cards-grid">
-        {(oppCards.length > 0 ? oppCards : Array.from({ length: 4 }) as any[]).map((c: MPCard | null, i) => {
-          const isPeekedHere = peekedAt?.seat === opp.seat_index && peekedAt.idx === i;
-          const revealed = c?.id ? revealedCards[c.id] : null;
-          const displayCard = revealed ? { ...c, value: revealed.value, suit: revealed.suit } : c;
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div className="player-cards-grid">
+          {(oppCards.length > 0 ? oppCards : Array.from({ length: 4 }) as any[]).map((c: MPCard | null, i) => {
+            const isPeekedHere = peekedAt?.seat === opp.seat_index && peekedAt.idx === i;
+            const revealed = c?.id ? revealedCards[c.id] : null;
+            const displayCard = revealed ? { ...c, value: revealed.value, suit: revealed.suit } : c;
 
-          return (
-            <MPCardView
-              key={c?.id ?? i}
-              card={displayCard as MPCard}
-              faceDown={isEnd ? false : !revealed}
-              size="sm"
-              glow={isPeekedHere || (canClickOpp)}
-              clickable={canClickOpp}
-              label={isPeekedHere ? '👁' : undefined}
-              onClick={canClickOpp ? () => onOppCardClick(opp.seat_index, i) : undefined}
-            />
-          );
-        })}
+            return (
+              <MPCardView
+                key={c?.id ?? i}
+                card={displayCard as MPCard}
+                faceDown={isEnd ? false : !revealed}
+                size="sm"
+                glow={isPeekedHere || (canClickOpp)}
+                clickable={canClickOpp}
+                label={isPeekedHere ? '👁' : undefined}
+                onClick={canClickOpp ? () => onOppCardClick(opp.seat_index, i) : undefined}
+              />
+            );
+          })}
+        </div>
+        {oppDrawnCard && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: 0.9 }}>
+            <div style={{ fontSize: '8px', opacity: 0.5, letterSpacing: '0.5px', marginBottom: '2px', color: '#ffd700' }}>DRAWN</div>
+            <MPCardView card={oppDrawnCard} faceDown size="sm" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -172,6 +181,7 @@ interface CenterPileProps {
   drawnCard: MPCard | null;
   isPlaying: boolean;
   deckCount: number;
+  topDeckCard: MPCard | null;
   topDiscardDown: MPCard | null;
   topDiscardUp: MPCard | null;
   mode: UIMode;
@@ -182,7 +192,7 @@ interface CenterPileProps {
 }
 
 const CenterPile: React.FC<CenterPileProps> = React.memo(({
-  isMyTurn, drawnCard, isPlaying, deckCount, topDiscardDown, topDiscardUp, mode,
+  isMyTurn, drawnCard, isPlaying, deckCount, topDeckCard, topDiscardDown, topDiscardUp, mode,
   onDeckClick, onAbilityClick, onKeepCard, onModeChange
 }) => {
   return (
@@ -194,9 +204,13 @@ const CenterPile: React.FC<CenterPileProps> = React.memo(({
       >
         <div className="deck-shadow-card card-md" style={deckShadow1} />
         <div className="deck-shadow-card card-md" style={deckShadow2} />
-        <div className="deck-top-card card-md">
-          <div className="card-back-inner" />
-        </div>
+        {topDeckCard ? (
+          <MPCardView card={topDeckCard} faceDown size="md" />
+        ) : (
+          <div className="deck-top-card card-md">
+            <div className="card-back-inner" />
+          </div>
+        )}
         <div className="deck-label">{deckCount} cards</div>
       </div>
 
@@ -450,6 +464,7 @@ export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => 
   }, [cards, others]);
 
   const deckCount = useMemo(() => cards.filter(c => c.location === 'deck').length, [cards]);
+  const topDeckCard = useMemo(() => cards.find(c => c.location === 'deck') || null, [cards]);
   const discardUpCards = useMemo(() => cards.filter(c => c.location === 'discard_up'), [cards]);
   const discardDownCards = useMemo(() => cards.filter(c => c.location === 'discard_down'), [cards]);
   
@@ -539,11 +554,13 @@ export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => 
   const renderOppSlot = (slot: 'top' | 'left' | 'right') => {
     const opp = others.find(o => slotMap[o.seat_index] === slot);
     if (!opp) return null;
+    const oppDrawnCard = cards.find(c => c.owner_seat === opp.seat_index && c.location === 'hand' && c.hand_index === 99) || null;
     return (
       <div className={`slot-${slot}`}>
         <OpponentHand
           opp={opp}
           oppCards={oppCardsCache[opp.seat_index] || []}
+          oppDrawnCard={oppDrawnCard}
           isActive={game?.current_turn_seat === opp.seat_index}
           canClickOpp={canClickOpp}
           peekedAt={peekedAt}
@@ -620,6 +637,7 @@ export const MPGameTable: React.FC<MPGameTableProps> = ({ gameId, onLeave }) => 
               drawnCard={drawnCard}
               isPlaying={isPlaying}
               deckCount={deckCount}
+              topDeckCard={topDeckCard}
               topDiscardDown={topDiscardDown}
               topDiscardUp={topDiscardUp}
               mode={mode}

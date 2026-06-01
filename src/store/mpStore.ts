@@ -75,19 +75,62 @@ interface MPStore {
   setError: (e: string | null) => void;
 }
 
-const invoke = async (fn: string, body: object) => {
-  const { data, error } = await supabase.functions.invoke(fn, { body });
-  if (error) {
-    // Extract the real error message from the function response body
-    try {
-      const errBody = await (error as any).context?.json?.();
-      if (errBody?.error) throw new Error(errBody.error);
-    } catch (inner: any) {
-      if (inner?.message && inner.message !== error.message) throw inner;
+const invoke = async (fn: string, body: any) => {
+  try {
+    // Try the primary (consolidated) function first
+    const { data, error } = await supabase.functions.invoke(fn, { body });
+    
+    if (error) {
+      const isNotFound = error.message?.toLowerCase().includes('not found') || 
+                         (error as any).status === 404 ||
+                         (error as any).context?.status === 404;
+      
+      if (isNotFound && body && typeof body.type === 'string') {
+        const fallbackFn = body.type;
+        console.warn(`Function "${fn}" returned 404. Falling back to individual function "${fallbackFn}"...`);
+        const { data: fbData, error: fbError } = await supabase.functions.invoke(fallbackFn, { body });
+        if (!fbError) return fbData;
+        
+        try {
+          const errBody = await (fbError as any).context?.json?.();
+          if (errBody?.error) throw new Error(errBody.error);
+        } catch (inner: any) {
+          if (inner?.message && inner.message !== fbError.message) throw inner;
+        }
+        throw new Error(fbError.message);
+      }
+      
+      try {
+        const errBody = await (error as any).context?.json?.();
+        if (errBody?.error) throw new Error(errBody.error);
+      } catch (inner: any) {
+        if (inner?.message && inner.message !== error.message) throw inner;
+      }
+      throw new Error(error.message);
     }
-    throw new Error(error.message);
+    return data;
+  } catch (err: any) {
+    // Handle request/network exceptions and attempt fallback if applicable
+    if (body && typeof body.type === 'string' && (fn === 'game-management' || fn === 'game-actions' || fn === 'game-flow')) {
+      const fallbackFn = body.type;
+      console.warn(`Request to "${fn}" failed. Attempting fallback to individual function "${fallbackFn}"...`, err);
+      try {
+        const { data: fbData, error: fbError } = await supabase.functions.invoke(fallbackFn, { body });
+        if (!fbError) return fbData;
+        
+        try {
+          const errBody = await (fbError as any).context?.json?.();
+          if (errBody?.error) throw new Error(errBody.error);
+        } catch (inner: any) {
+          if (inner?.message && inner.message !== fbError.message) throw inner;
+        }
+        throw new Error(fbError.message);
+      } catch (fallbackErr: any) {
+        throw fallbackErr;
+      }
+    }
+    throw err;
   }
-  return data;
 };
 
 let currentAccessToken: string | null = null;
